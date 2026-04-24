@@ -1,0 +1,35 @@
+{
+  "name": "@kaigilb/twinpod-client",
+  "version": "1.1.0",
+  "description": "Reusable TwinPod / Solid client for @kaigilb Vue apps — rdflib store, hyperFetch, auth, ACL, pod discovery, writes, Neo query helpers.",
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./src/index.js",
+  "module": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src",
+    "dist"
+  ],
+  "scripts": {
+    "build": "vite build",
+    "test:unit": "vitest run"
+  },
+  "peerDependencies": {
+    "vue": "^3.4.0"
+  },
+  "dependencies": {
+    "@inrupt/solid-client": "^2.0.1",
+    "@inrupt/solid-client-authn-browser": "^4.0.0",
+    "@inrupt/vocab-common-rdf": "^1.0.5",
+    "rdflib": "^2.2.35"
+  },
+  "devDependencies": {
+    "vite": "^8.0.8",
+    "vitest": "^1.6.0"
+  }
+}
