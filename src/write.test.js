@@ -419,3 +419,54 @@ describe('ur.deleteResource', () => {
       .rejects.toThrow('Delete failed: 403')
   })
 })
+
+describe('ur.uploadFile', () => {
+  // Spec: F.WorkbookPodSave — plain-text PUT for non-RDF resources (e.g. Markdown files)
+  // Writes via ur.hyperFetch (authenticated); does NOT use window.solid.session.fetch directly.
+
+  const FILE_URL = 'https://pod.example.com/home/thebrain-workbook.md'
+  const CONTENT = '# My Workbook\n\nSome content.'
+
+  test('PUTs the string content to the target URL with the given Content-Type', async () => {
+    ur.hyperFetch.mockResolvedValue({ ok: true, status: 200 })
+    const result = await ur.uploadFile(FILE_URL, CONTENT, 'text/plain')
+
+    expect(ur.hyperFetch).toHaveBeenCalledTimes(1)
+    const [url, init] = ur.hyperFetch.mock.calls[0]
+    expect(url).toBe(FILE_URL)
+    expect(init.method).toBe('PUT')
+    expect(init.headers['Content-Type']).toBe('text/plain')
+    expect(init.body).toBe(CONTENT)
+    expect(result.ok).toBe(true)
+  })
+
+  test('returns the response object on success (ok: true)', async () => {
+    const mockResponse = { ok: true, status: 204 }
+    ur.hyperFetch.mockResolvedValue(mockResponse)
+    const result = await ur.uploadFile(FILE_URL, CONTENT, 'text/plain')
+    expect(result).toBe(mockResponse)
+  })
+
+  test('returns { ok: false, status } on non-2xx response without throwing', async () => {
+    // Spec: F.WorkbookPodSave — save errors are non-blocking; must not throw
+    ur.hyperFetch.mockResolvedValue({ ok: false, status: 503 })
+    const result = await ur.uploadFile(FILE_URL, CONTENT, 'text/plain')
+    expect(result.ok).toBe(false)
+    expect(result.status).toBe(503)
+  })
+
+  test('returns { ok: false, status: 0 } on network failure without throwing', async () => {
+    // Spec: F.WorkbookPodSave — network failure is non-blocking; must not throw
+    ur.hyperFetch.mockRejectedValue(new Error('network error'))
+    const result = await ur.uploadFile(FILE_URL, CONTENT, 'text/plain')
+    expect(result.ok).toBe(false)
+    expect(result.status).toBe(0)
+  })
+
+  test('accepts text/markdown content type', async () => {
+    ur.hyperFetch.mockResolvedValue({ ok: true, status: 200 })
+    await ur.uploadFile(FILE_URL, CONTENT, 'text/markdown')
+    const [, init] = ur.hyperFetch.mock.calls[0]
+    expect(init.headers['Content-Type']).toBe('text/markdown')
+  })
+})

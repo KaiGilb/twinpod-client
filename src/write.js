@@ -63,6 +63,39 @@ ur.uploadImage = async function(targetUrl, file) {
   return res
 }
 
+/**
+ * Writes a plain-text (or other non-RDF) file to a TwinPod pod resource via PUT.
+ *
+ * Use this for Markdown files, plain text, and any non-Turtle content.
+ * Do NOT use ur.uploadTurtleToResource for non-Turtle writes — that method
+ * sets Content-Type: text/turtle and issues PATCH, not PUT.
+ *
+ * Routes through ur.hyperFetch (authenticated; session bridged by rdfStore.js).
+ *
+ * On success: returns the Response object.
+ * On failure: returns { ok: false, status } — does not throw.
+ *
+ * Spec: F.WorkbookPodSave (TheBrain) — S.TwinPodFileRW write path
+ * V.WorkbookOwnershipClarity — write target must be the pod URL, not a third-party server.
+ *
+ * @param {string} url        - Absolute pod URL to PUT the content to.
+ * @param {string} content    - String body (e.g. Markdown text).
+ * @param {string} contentType - MIME type (e.g. 'text/plain', 'text/markdown').
+ * @returns {Promise<Response|{ok:boolean,status:number}>}
+ */
+ur.uploadFile = async function(url, content, contentType) {
+  try {
+    const res = await ur.hyperFetch(url, {
+      method: 'PUT',
+      headers: { 'Content-Type': contentType },
+      body: content,
+    })
+    return res
+  } catch (err) {
+    return { ok: false, status: 0, error: err }
+  }
+}
+
 ur.mintNodeUri = function(podRoot, prefix = 't') {
   const root = podRoot.endsWith('/') ? podRoot.slice(0, -1) : podRoot
   const rand = Math.random().toString(36).slice(2, 6)
