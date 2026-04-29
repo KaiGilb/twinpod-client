@@ -13,8 +13,41 @@ import * as $rdf from 'rdflib'
 import { Session, InMemoryStorage } from '@inrupt/solid-client-authn-browser'
 import { ref } from 'vue'
 
+// Persistent storage backed by window.localStorage. Required for session
+// restore on page reload — Inrupt's default `Session()` uses InMemoryStorage
+// for the *secure* slot, which holds the DPoP private key, refresh token,
+// and the `isLoggedIn` flag. Without persisting that slot, a Cmd-R wipes
+// the credentials needed for `restorePreviousSession: true` to drive a
+// silent re-authentication, so the user bounces back to the login screen.
+//
+// Inrupt's own bundle leaves a FIXME at the registration site:
+//   "figure out how to persist secure storage at reload — Otherwise, the
+//    client info cannot be retrieved from storage"
+// The shape required is just IStorage = { get, set, delete }.
+const localStorageBackedStorage = {
+  get: async (key) => {
+    const value = window.localStorage.getItem(key)
+    return value === null ? undefined : value
+  },
+  set: async (key, value) => {
+    window.localStorage.setItem(key, value)
+  },
+  delete: async (key) => {
+    window.localStorage.removeItem(key)
+  }
+}
+
 window.solid = {}
-window.solid.session = new Session()
+// Pass the persistent storage as both secureStorage AND insecureStorage so
+// every piece of per-session info (DPoP keypair, refresh token, isLoggedIn,
+// webId, clientId, issuer, redirectUrl, tokenType) is recoverable after a
+// reload. This is the reload-persistence pattern documented in
+// `9 - Standard/Reference_Code_TwinPod-Auth.md` § "Restoring sessions on
+// reload".
+window.solid.session = new Session({
+  secureStorage: localStorageBackedStorage,
+  insecureStorage: localStorageBackedStorage
+})
 window.solidFetcher = window.solid.session.fetch
 window.solid.storage = InMemoryStorage
 
