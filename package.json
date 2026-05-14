@@ -1,6 +1,6 @@
 {
   "name": "@kaigilb/twinpod-client",
-  "version": "1.2.0",
+  "version": "1.4.1",
   "description": "Reusable TwinPod / Solid client for @kaigilb Vue apps — rdflib store, hyperFetch, auth, ACL, pod discovery, writes, Neo query helpers.",
   "type": "module",
   "publishConfig": {
