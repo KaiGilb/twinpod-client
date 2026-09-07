@@ -7,6 +7,7 @@
  * Uses ur.hyperFetch, ur.$rdf, ur.rdfStore, ur.rdfUpdater internally.
  */
 import { ur } from './util-rdf.js'
+import './pod-write-circuit.js'
 
 ur.setValue = function(docUrl, subjectUri, predicateUri, newValue, {
   isLiteral = true,
@@ -84,12 +85,18 @@ ur.uploadImage = async function(targetUrl, file) {
  * @returns {Promise<Response|{ok:boolean,status:number}>}
  */
 ur.uploadFile = async function(url, content, contentType) {
+  if (typeof ur.podWritesBlocked === 'function' && ur.podWritesBlocked()) {
+    return { ok: false, status: ur.podWriteCircuitStatus() || 403, blocked: true }
+  }
   try {
     const res = await ur.hyperFetch(url, {
       method: 'PUT',
       headers: { 'Content-Type': contentType },
       body: content,
     })
+    if (res && typeof ur.tripPodWriteCircuit === 'function') {
+      ur.tripPodWriteCircuit(res.status, url)
+    }
     return res
   } catch (err) {
     return { ok: false, status: 0, error: err }
@@ -202,6 +209,31 @@ ur.modifyTurtle = function(turt) {
   return turt
 }
 
+/**
+ * Patch RDF triples to a resource URI.
+ *
+ * UPDATED 2026-05-30 per Fred-direct guidance: `Content-Type: text/turtle` PATCH
+ * was a non-spec server-side hack ("upload rdf files directly into the pod")
+ * that has now been turned off in production. The hack returned 201 but
+ * silently dropped the data. The ONLY canonical Solid-spec method to patch
+ * RDF data is `application/sparql-update` with `INSERT DATA { ... }`.
+ *
+ * This function wraps the turtle body in `INSERT DATA { ... }` and PATCHes
+ * with `Content-Type: application/sparql-update` against the resource URI.
+ * Caller interface unchanged — same (uri, turtleBody, options).
+ *
+ * The turtle body may include `@prefix` declarations inline; Trinity accepts
+ * these inside `INSERT DATA { ... }` per the hyperFetch examples Fred pasted.
+ * If a strict-SPARQL-1.1 endpoint rejects them later, the caller can pre-render
+ * with fully-qualified URIs (no prefixes) instead.
+ *
+ * @param {string} uri          target resource URI
+ * @param {string} turtleBody   triples in turtle syntax
+ * @param {Object} [options]
+ * @param {string} [options.method='PATCH']  HTTP method override
+ * @param {boolean} [options.returnResponse]  return rich response object instead of bare boolean
+ * @returns {Promise<boolean | { ok, status, headers, locationUri, response }>}
+ */
 ur.uploadTurtleToResource = async function(uri, turtleBody, options = {}) {
   if (!uri) {
     console.log("ERROR: URI missing for resource. Update not possible.")
@@ -213,12 +245,16 @@ ur.uploadTurtleToResource = async function(uri, turtleBody, options = {}) {
   let successfulFetch = false
   let response = null
 
+  // SPARQL Update INSERT DATA wrapper — canonical Solid-spec PATCH transport
+  // for RDF data. See header docstring above.
+  const sparqlBody = `INSERT DATA {\n${turtleBody}\n}`
+
   try {
     response = await ur.hyperFetch(uri, {
       method: options.method || 'PATCH',
       credentials: 'include',
-      body: turtleBody,
-      headers: { 'Content-Type': 'text/turtle' },
+      body: sparqlBody,
+      headers: { 'Content-Type': 'application/sparql-update' },
     })
 
     if (response.status === 200 || response.status === 201) {

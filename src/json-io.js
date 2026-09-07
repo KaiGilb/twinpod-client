@@ -28,6 +28,7 @@
  *     where the GET / merge / PUT happens.
  */
 import { ur } from './util-rdf.js'
+import './pod-write-circuit.js'
 
 function _getSessFetch() {
   const sess = typeof window !== 'undefined' ? window?.solid?.session : null
@@ -47,6 +48,9 @@ function _getSessFetch() {
  *          fallback object only when fetch itself throws (no session, etc).
  */
 ur.uploadJSON = async function (url, value) {
+  if (typeof ur.podWritesBlocked === 'function' && ur.podWritesBlocked()) {
+    return { ok: false, status: ur.podWriteCircuitStatus() || 403, blocked: true }
+  }
   const sessFetch = _getSessFetch()
   if (!sessFetch) {
     return { ok: false, status: 0, error: new Error('no authenticated session') }
@@ -61,6 +65,9 @@ ur.uploadJSON = async function (url, value) {
       },
       body
     })
+    if (res && typeof ur.tripPodWriteCircuit === 'function') {
+      ur.tripPodWriteCircuit(res.status, url)
+    }
     return res
   } catch (err) {
     return { ok: false, status: 0, error: err }
