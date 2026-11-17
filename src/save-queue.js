@@ -29,10 +29,29 @@
 //   types: 'queued' | 'started' | 'succeeded' | 'failed'
 
 import { ur } from './util-rdf.js'
+import './pod-write-circuit.js'
 
-const _queues = new Map()    // resourceKey → { running: boolean, items: [{id, task, label}] }
+const _queues = new Map()    // resourceKey → { running, items, consecutiveFailures, paused }
 const _listeners = new Set()
 let _jobIdCounter = 0
+
+// After this many consecutive failures on ONE resourceKey, pause that key —
+// further enqueueSave calls fail-fast with no network. Stops a caller that
+// re-enqueues on every isDirty / stream-end from hammering TwinPod (2026-09-07
+// TomTwin 403 loop on thebrain-credits.json + content.json + manifest.json).
+const MAX_CONSECUTIVE_FAILURES = 3
+
+function _circuitOpen() {
+  return typeof ur.podWritesBlocked === 'function' && ur.podWritesBlocked()
+}
+
+function _failFastError(q) {
+  if (q && q.paused) {
+    return new Error(`enqueueSave: paused after ${MAX_CONSECUTIVE_FAILURES} consecutive failures`)
+  }
+  const status = typeof ur.podWriteCircuitStatus === 'function' ? ur.podWriteCircuitStatus() : null
+  return new Error(`enqueueSave: pod write circuit open (${status ?? 'auth'})`)
+}
 
 function _emit(event) {
   for (const fn of _listeners) {
@@ -80,9 +99,19 @@ ur.enqueueSave = function ({ resourceKey, task, label = 'save' } = {}) {
   const id = `save-${++_jobIdCounter}-${Date.now()}`
   let q = _queues.get(resourceKey)
   if (!q) {
-    q = { running: false, items: [] }
+    q = { running: false, items: [], consecutiveFailures: 0, paused: false }
     _queues.set(resourceKey, q)
   }
+
+  // Fail-fast: do not touch the network when the pod has already said 401/403
+  // or this key has failed MAX_CONSECUTIVE_FAILURES times in a row.
+  if (_circuitOpen() || q.paused) {
+    _emit({ type: 'queued', id, resourceKey, label, queueDepth: q.items.length })
+    _emit({ type: 'started', id, resourceKey, label })
+    _emit({ type: 'failed', id, resourceKey, label, error: _failFastError(q) })
+    return id
+  }
+
   q.items.push({ id, task, label })
   _emit({ type: 'queued', id, resourceKey, label, queueDepth: q.items.length })
   _drain(resourceKey)
@@ -95,12 +124,27 @@ async function _drain(resourceKey) {
   q.running = true
   try {
     while (q.items.length > 0) {
+      if (q.paused || _circuitOpen()) {
+        while (q.items.length > 0) {
+          const skipped = q.items.shift()
+          _emit({ type: 'started', id: skipped.id, resourceKey, label: skipped.label })
+          _emit({ type: 'failed', id: skipped.id, resourceKey, label: skipped.label, error: _failFastError(q) })
+        }
+        break
+      }
       const { id, task, label } = q.items.shift()
       _emit({ type: 'started', id, resourceKey, label })
       try {
         const result = await task()
+        q.consecutiveFailures = 0
+        q.paused = false
         _emit({ type: 'succeeded', id, resourceKey, label, result })
       } catch (error) {
+        q.consecutiveFailures = (q.consecutiveFailures || 0) + 1
+        if (q.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+          q.paused = true
+          q.items.length = 0
+        }
         _emit({ type: 'failed', id, resourceKey, label, error })
       }
     }
@@ -117,6 +161,19 @@ ur._resetSaveQueueForTesting = function () {
   _queues.clear()
   _listeners.clear()
   _jobIdCounter = 0
+  if (typeof ur._resetPodWriteCircuitForTesting === 'function') {
+    ur._resetPodWriteCircuitForTesting()
+  }
+}
+
+// Close the circuit AND unpause every resourceKey so a fresh login can write.
+const _origResetCircuit = ur.resetPodWriteCircuit
+ur.resetPodWriteCircuit = function () {
+  if (typeof _origResetCircuit === 'function') _origResetCircuit()
+  for (const q of _queues.values()) {
+    q.paused = false
+    q.consecutiveFailures = 0
+  }
 }
 
 export {}

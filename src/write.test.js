@@ -314,15 +314,20 @@ describe('ur.uploadImage', () => {
 })
 
 describe('ur.uploadTurtleToResource', () => {
-  test('sends PATCH with Content-Type: text/turtle and credentials: include', async () => {
+  test('sends PATCH application/sparql-update with INSERT DATA wrapper and credentials: include', async () => {
+    // Per Fred 2026-05-30: text/turtle PATCH was a non-spec server hack now
+    // turned off in production. Canonical is application/sparql-update +
+    // INSERT DATA { ... } against the resource URI.
     ur.hyperFetch.mockResolvedValue({ status: 201, headers: new Map() })
     await ur.uploadTurtleToResource('https://pod.example.com/t/t_note_1', '_:t1 a <Note> .')
     expect(ur.hyperFetch).toHaveBeenCalledTimes(1)
     const [url, init] = ur.hyperFetch.mock.calls[0]
     expect(url).toBe('https://pod.example.com/t/t_note_1')
     expect(init.method).toBe('PATCH')
-    expect(init.headers['Content-Type']).toBe('text/turtle')
+    expect(init.headers['Content-Type']).toBe('application/sparql-update')
     expect(init.credentials).toBe('include')
+    expect(init.body).toContain('INSERT DATA')
+    expect(init.body).toContain('_:t1 a <Note> .')
   })
 
   test('returns true on HTTP 201', async () => {

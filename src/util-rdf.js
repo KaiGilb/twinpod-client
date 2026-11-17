@@ -151,7 +151,9 @@ ur.aLoadURI = async function (uri, doc, options = {}) {
     return response
   } catch (err) {
     console.log("Cant load URI: ", uri, err, opts)
-    ur.checkIfAppAuthorizationRequired(uri)
+    // Pass err along — rdflib's Fetcher attaches the response object on err
+    // so checkIfAppAuthorizationRequired can read App-Authorization-Required header.
+    ur.checkIfAppAuthorizationRequired(uri, err)
     throw err
   }
 }
@@ -177,10 +179,55 @@ ur.getAclUri = async function(uri, uriRequest=undefined, options={}){
 	})
 }
 
-ur.checkIfAppAuthorizationRequired = function(uri){
+/**
+ * Handle 401 from a TwinPod resource. Two paths:
+ *
+ *   Path 1 — Not logged in: re-trigger ur.solidLogin().
+ *
+ *   Path 2 — App-trust missing: when the response carries an
+ *   `App-Authorization-Required` header (Fred-canonical pattern,
+ *   per his 2021-10-27/28/29 Slack quotes), redirect the browser
+ *   to that consent URL with `&redirect_uri=<current>` appended.
+ *
+ *   This is the canonical handler. Without it, granted users who try
+ *   to access a pod for the first time hit a 401 and stall instead of
+ *   being routed through the trusted-app consent flow.
+ *
+ *   See `Reference_Code_TwinPod-AppAuthorization.md` §6 for the gap
+ *   this fixes (APPAUTH-CLIENT-1).
+ *
+ * @param {string} uri  the URI that triggered the 401
+ * @param {*} [errOrResponse]  optional — rdflib Fetcher error (which
+ *   carries the response on `err.response` or `err.cause.response`)
+ *   OR a raw Response object. Required for Path 2.
+ */
+ur.checkIfAppAuthorizationRequired = function(uri, errOrResponse){
 	try {
+		// Path 1 — re-login if session is gone
 		if(globalThis.solid && globalThis.solid.session && !globalThis.solid.session.info.isLoggedIn){
-			if(ur.solidLogin) ur.solidLogin()
+			if(ur.solidLogin) return ur.solidLogin()
+		}
+
+		// Path 2 — App-trust missing: read App-Authorization-Required header and redirect
+		// Extract a response object from whatever was passed in
+		let response = null
+		if (errOrResponse) {
+			if (typeof errOrResponse.headers?.get === 'function') {
+				// It's a Response-like object directly
+				response = errOrResponse
+			} else if (errOrResponse.response && typeof errOrResponse.response.headers?.get === 'function') {
+				response = errOrResponse.response
+			} else if (errOrResponse.cause?.response && typeof errOrResponse.cause.response.headers?.get === 'function') {
+				response = errOrResponse.cause.response
+			}
+		}
+		if (response && response.status === 401) {
+			const appAuthReq = response.headers.get('App-Authorization-Required')
+			if (appAuthReq && typeof globalThis.location !== 'undefined') {
+				const sep = appAuthReq.includes('?') ? '&' : '?'
+				globalThis.location.href = appAuthReq + sep + 'redirect_uri=' + encodeURIComponent(globalThis.location.href)
+				return
+			}
 		}
 	} catch (err) {
 		console.log("checkIfAppAuthorizationRequired error:", err)

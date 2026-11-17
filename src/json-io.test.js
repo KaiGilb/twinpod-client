@@ -22,6 +22,9 @@ let sessFetch
 beforeEach(() => {
   sessFetch = vi.fn()
   globalThis.window = { solid: { session: { fetch: sessFetch } } }
+  if (typeof ur._resetPodWriteCircuitForTesting === 'function') {
+    ur._resetPodWriteCircuitForTesting()
+  }
 })
 
 afterEach(() => {
@@ -66,6 +69,19 @@ describe('ur.uploadJSON', () => {
     const accept = sessFetch.mock.calls[0][1].headers.Accept
     expect(accept).not.toContain('text/turtle')
     expect(accept).not.toContain('ld+json')
+  })
+
+  test('403 PUT trips the write circuit; next PUT is fail-fast with no fetch', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    sessFetch.mockResolvedValueOnce({ ok: false, status: 403 })
+    const first = await ur.uploadJSON('https://pod.example.com/x.json', { a: 1 })
+    expect(first.status).toBe(403)
+    expect(ur.podWritesBlocked()).toBe(true)
+
+    const second = await ur.uploadJSON('https://pod.example.com/x.json', { a: 2 })
+    expect(second.ok).toBe(false)
+    expect(second.blocked).toBe(true)
+    expect(sessFetch).toHaveBeenCalledTimes(1)
   })
 })
 

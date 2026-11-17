@@ -23,6 +23,8 @@ export const NS = {
   DCTERMS: $rdf.Namespace('http://purl.org/dc/terms/'),
   DUL:     $rdf.Namespace('http://www.ontologydesignpatterns.org/ont/dul/DUL.owl#'),
   SIO:     $rdf.Namespace('http://semanticscience.org/resource/'),
+  OBO:     $rdf.Namespace('http://purl.obolibrary.org/obo/'),
+  TL:      $rdf.Namespace('http://purl.org/NET/c4dm/timeline.owl#'),
   EVENT:   $rdf.Namespace('http://purl.org/NET/c4dm/event.owl#'),
   PROV:    $rdf.Namespace('http://www.w3.org/ns/prov#'),
   ORG:     $rdf.Namespace('http://www.w3.org/ns/org#'),
